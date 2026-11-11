@@ -14,6 +14,42 @@
 
 ---
 
+### 💻 环境说明
+
+#### 1. 免环境运行（普通用户）
+* **支持系统**：Windows 10 / Windows 11 (64位)
+* **运行依赖**：无需安装 Python。若首次运行提示缺少 DLL 文件，需安装官方的 [Visual C++ Redistributable 2015-2022](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
+
+#### 2. 开发与源码运行环境（开发者）
+* **Python 版本**：Python 3.10 及以上（64-bit）
+* **包管理工具**：pip 22.0+
+* **核心第三方库**：
+  * `ddddocr`：验证码光学字符识别
+  * `requests`：网络请求与 Session 会话维护
+  * `urllib3`：HTTP 底层连接池控制
+  * `PyInstaller`（可选）：用于单文件打包发布
+
+---
+
+### 📂 项目目录结构
+
+```text
+dounaicheck/
+├── main.py                  # 核心主程序（包含登录、会话验证、OCR算式识别与签到逻辑）
+├── README.md                # 项目详细说明文档
+├── .gitignore               # Git 忽略规则文件（防止提交密码与大体积打包产物）
+├── config.json.sample      # 配置文件模板示例（账号密码示例）
+│
+├── config.json              # [本地运行生成] 实际用户配置文件（含账号密码，已忽略防泄密）
+├── session_cookies.pkl      # [运行缓存] 本地登录会话凭据（24小时内免重新登录）
+│
+├── build/                   # [PyInstaller 构建临时目录，可随时清理]
+└── dist/                    # [PyInstaller 输出目录]
+    └── main.exe             # 最终打包生成的免环境单文件程序（发布至 GitHub Releases）
+```
+
+---
+
 ### 🚀 快速使用指南
 
 #### 方式一：普通用户（无需 Python 环境，最推荐）
@@ -21,9 +57,9 @@
 如果你只是想使用签到功能，不需要安装任何编程环境：
 
 1. **获取程序**：
-   * 前往本仓库右侧的 [Releases 发布页面](https://github.com/Mertred/dounaicheck/releases) 下载最新版本的打包文件（`dounaicheck.zip` 或 `main.exe`）。
+   * 前往本仓库右侧的 [Releases 发布页面](https://github.com/Mertred/dounaicheck/releases) 下载最新版本的打包程序（`main.exe`）。
 2. **准备配置文件**：
-   * 将下载的文件解压到一个单独的文件夹中。
+   * 将下载的 `main.exe` 放入一个单独的文件夹中。
    * 直接双击运行一次 `main.exe`，程序会在同级目录下自动生成一个 `config.json` 模板文件，随后提示退出。
 3. **填写账号信息**：
    * 用记事本打开生成的 `config.json`，填入你的账号与密码：
@@ -40,7 +76,7 @@
 
 #### 方式二：开发者（通过源码运行）
 
-如果你需要二次开发或在 Linux / macOS / 本地虚拟环境中运行：
+如果你需要二次开发或在本地虚拟环境中运行：
 
 1. **克隆仓库并进入目录**：
    ```bash
@@ -48,7 +84,7 @@
    cd dounaicheck
    ```
 
-2. **创建并激活虚拟环境**（可选）：
+2. **创建并激活虚拟环境**：
    ```powershell
    python -m venv .venv
    .\.venv\Scripts\activate
@@ -56,6 +92,7 @@
 
 3. **安装依赖项**：
    ```bash
+   python -m pip install --upgrade pip
    pip install requests ddddocr urllib3 pyinstaller
    ```
 
@@ -75,7 +112,7 @@
 ```powershell
 python -m PyInstaller -F --collect-all ddddocr main.py
 ```
-> 打包产物将输出在 `dist/` 文件夹中。
+> 构建完成后，打包产物将输出在 `dist/` 文件夹中。请注意单文件较大（约 150MB），若需分发请上传至 GitHub Releases，切勿直接 push 进 Git 仓库。
 
 ---
 
