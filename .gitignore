@@ -1,0 +1,13 @@
+# 忽略敏感信息和本地配置
+config.json
+session_cookies.pkl
+
+# 忽略打包产物与构建缓存
+build/
+dist/
+*.spec
+
+# 忽略虚拟环境与 Python 缓存
+.venv/
+__pycache__/
+*.py[cod]
