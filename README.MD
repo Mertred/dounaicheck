@@ -44,5 +44,43 @@
 
 1. **克隆仓库并进入目录**：
    ```bash
-   git clone [https://github.com/Mertred/dounaicheck.git](https://github.com/Mertred/dounaicheck.git)
+   git clone https://github.com/Mertred/dounaicheck.git
    cd dounaicheck
+   ```
+
+2. **创建并激活虚拟环境**（可选）：
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   ```
+
+3. **安装依赖项**：
+   ```bash
+   pip install requests ddddocr urllib3 pyinstaller
+   ```
+
+4. **配置并运行**：
+   * 参考 `config.example.json` 新建 `config.json` 并填入个人凭据。
+   * 执行脚本：
+     ```bash
+     python main.py
+     ```
+
+---
+
+### 📦 打包构建
+
+若需自行打包为免环境单文件程序，请确保已安装 `pyinstaller`，然后执行带模型资源收集的打包命令：
+
+```powershell
+python -m PyInstaller -F --collect-all ddddocr main.py
+```
+> 打包产物将输出在 `dist/` 文件夹中。
+
+---
+
+### 📄 免责声明 / Disclaimer
+
+1. **技术交流**：本项目仅供 Python 网络爬虫、自动化测试及图像识别技术的学习与交流使用，严禁用于任何商业目的或非法用途。
+2. **数据隐私**：本工具绝不会收集或回传用户的凭证数据，所有配置与缓存仅保存在用户本地设备中。
+3. **风险自负**：目标站点的接口规范与风控规则可能随时变动，请自行承担因频繁请求或自动化操作可能引发的风控标记、账号异常等一切风险，作者不对使用本工具导致的任何直接或间接后果负责。
