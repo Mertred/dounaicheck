@@ -12,12 +12,16 @@ import requests
 import ddddocr
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from datetime import datetime, timedelta
 
 # 动态定位当前运行目录（兼容 .py 运行和打包后的 .exe 运行）
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+LOG_FILE = os.path.join(BASE_DIR, "checkin.log")
+LOG_RETENTION_DAYS = 7  # 日志保留天数
 
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 COOKIE_CACHE_FILE = os.path.join(BASE_DIR, "session_cookies.pkl")
@@ -32,6 +36,52 @@ SIGN_API = "/user/checkin"
 TIMEOUT = (10, 30)
 COOKIE_EXPIRE_SECONDS = 24 * 3600
 
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+LOG_FILE = os.path.join(BASE_DIR, "checkin.log")
+# 获取程序运行所在目录（兼容脚本与打包后的 exe）
+def cleanup_old_logs():
+    """启动时清理超过 7 天的历史日志，保持单文件体积精简"""
+    if not os.path.exists(LOG_FILE):
+        return
+    try:
+        cutoff = datetime.now() - timedelta(days=LOG_RETENTION_DAYS)
+        kept_lines = []
+        keep_current_block = True
+
+        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                # 匹配标准时间戳前缀，例如: [2026-11-12 16:00:10]
+                if len(line) >= 21 and line.startswith("[") and line[20] == "]":
+                    try:
+                        log_time = datetime.strptime(line[1:20], "%Y-%m-%d %H:%M:%S")
+                        keep_current_block = log_time >= cutoff
+                    except ValueError:
+                        pass
+                # 紧跟在某条日志下的多行内容（如堆栈或换行输出）跟随上一条的时间判定
+                if keep_current_block:
+                    kept_lines.append(line)
+
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            f.writelines(kept_lines)
+    except Exception:
+        pass
+
+
+def log(*args):
+    """支持多参数输出，同时打印到控制台并追加写入到本地 checkin.log"""
+    msg = " ".join(str(arg) for arg in args)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{timestamp}] {msg}"
+    print(line)
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
 
 def load_config() -> tuple[str, str]:
     """读取 config.json，若不存在则自动生成模板"""
@@ -39,9 +89,10 @@ def load_config() -> tuple[str, str]:
         default_cfg = {"email": "your_email@qq.com", "passwd": "your_password"}
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(default_cfg, f, indent=4, ensure_ascii=False)
-        print(f"⚠️ 未检测到配置文件，已为您生成默认模板：{CONFIG_FILE}")
-        print("请打开 config.json 填入正确的邮箱和密码后重新运行程序！")
-        input("\n按回车键退出...")
+        log(f"⚠️ 未检测到配置文件，已为您生成默认模板：{CONFIG_FILE}")
+        log("请打开 config.json 填入正确的邮箱和密码后重新运行程序！")
+        print("\n按回车键退出...")
+        time.sleep(5)
         sys.exit(0)
 
     try:
@@ -51,14 +102,16 @@ def load_config() -> tuple[str, str]:
         passwd = data.get("passwd", "").strip()
 
         if not email or not passwd or "your_email" in email:
-            print("⚠️ config.json 中的账号或密码未配置正确，请修改后重试！")
-            input("\n按回车键退出...")
+            log("⚠️ config.json 中的账号或密码未配置正确，请修改后重试！")
+            print("\n按回车键退出...")
+            time.sleep(5)
             sys.exit(0)
 
         return email, passwd
     except Exception as e:
-        print(f"❌ 读取 config.json 失败: {e}")
-        input("\n按回车键退出...")
+        log(f"❌ 读取 config.json 失败: {e}")
+        print("\n按回车键退出...")
+        time.sleep(5)
         sys.exit(1)
 
 
@@ -141,9 +194,9 @@ def save_session_cookies():
     try:
         with open(COOKIE_CACHE_FILE, "wb") as f:
             pickle.dump(cache_data, f)
-        print("✅ Session Cookies 已缓存至本地")
+        log("✅ Session Cookies 已缓存至本地")
     except Exception as e:
-        print(f"⚠️ 保存 Session 失败: {e}")
+        log(f"⚠️ 保存 Session 失败: {e}")
 
 
 def load_session_cookies() -> bool:
@@ -155,17 +208,17 @@ def load_session_cookies() -> bool:
 
         saved_at = cache_data.get("saved_at", 0)
         if time.time() - saved_at > COOKIE_EXPIRE_SECONDS:
-            print("🕒 本地 Session 已超时 24 小时")
+            log("🕒 本地 Session 已超时 24 小时")
             return False
 
         cookies = cache_data.get("cookies", {})
         session.cookies.update(cookies)
-        print(
+        log(
             f"🔄 读取本地 Session 成功（已保存 {int((time.time() - saved_at) / 3600)} 小时）"
         )
         return True
     except Exception as e:
-        print(f"⚠️ 读取本地 Session 失败: {e}")
+        log(f"⚠️ 读取本地 Session 失败: {e}")
         return False
 
 
@@ -242,22 +295,22 @@ def get_captcha_code(
 
             img_bytes = base64.b64decode(match.group(1))
             text = ocr.classification(img_bytes)
-            print(f"[{captcha_type}] 验证码第 {attempt} 次 OCR 识别: '{text}'")
+            log(f"[{captcha_type}] 验证码第 {attempt} 次 OCR 识别: '{text}'")
 
             result = calculate_expression(text)
-            print(f"[{captcha_type}] 算式计算结果: {result}")
+            log(f"[{captcha_type}] 算式计算结果: {result}")
             return result
 
         except Exception as e:
-            print(f"第 {attempt} 次解析失败 ({e})，正在自动换一张...")
+            log(f"第 {attempt} 次解析失败 ({e})，正在自动换一张...")
             time.sleep(1.2)
 
     raise RuntimeError("连续多次验证码识别失败")
 
 
 def login():
-    print(f"当前登录账号: {USERNAME}")
-    print("访问登录页面建立 Session...")
+    log(f"当前登录账号: {USERNAME}")
+    log("访问登录页面建立 Session...")
     session.get(BASE_URL + LOGIN_PAGE, timeout=TIMEOUT)
     time.sleep(random.uniform(1.5, 3.0))
 
@@ -280,17 +333,19 @@ def login():
         resp = session.post(login_url, data=payload, headers=headers, timeout=TIMEOUT)
         data = resp.json()
     except Exception as e:
-        print("登录请求失败:", e)
-        input("\n按回车键退出...")
+        log("登录请求失败:", e)
+        print("\n按回车键退出...")
+        time.sleep(5)
         sys.exit(1)
 
-    print("登录响应:", data)
+    log("登录响应:", data)
     if data.get("ret") != 1:
-        print(f"登录失败: {data.get('msg')}")
-        input("\n按回车键退出...")
+        log(f"登录失败: {data.get('msg')}")
+        print("\n按回车键退出...")
+        time.sleep(5)
         sys.exit(1)
 
-    print("登录成功！")
+    log("登录成功！")
     save_session_cookies()
 
 
@@ -322,28 +377,28 @@ def sign():
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
     }
 
-    print("访问用户面板刷新页面凭证...")
+    log("访问用户面板刷新页面凭证...")
     resp_panel = session.get(user_page, timeout=TIMEOUT)
 
     panel_browse_delay = random.uniform(2.5, 4.5)
-    print(f"模拟用户停留在面板页面 {panel_browse_delay:.1f} 秒...")
+    log(f"模拟用户停留在面板页面 {panel_browse_delay:.1f} 秒...")
     time.sleep(panel_browse_delay)
 
     ticket = extract_ticket(resp_panel.text)
     if not ticket:
-        print("❌ 未在用户面板中提取到 checkinTicket")
+        log("❌ 未在用户面板中提取到 checkinTicket")
         return
-    print(f"成功提取到 checkinTicket: {ticket[:25]}...")
+    log(f"成功提取到 checkinTicket: {ticket[:25]}...")
 
-    print("弹出签到框，正在获取验证码 (type=checkin)...")
+    log("弹出签到框，正在获取验证码 (type=checkin)...")
     sign_captcha_val = get_captcha_code(captcha_type="checkin", referer=user_page)
 
     human_thinking_time = random.uniform(3.5, 6.0)
-    print(f"模拟真人计算与输入延迟: {human_thinking_time:.2f} 秒...")
+    log(f"模拟真人计算与输入延迟: {human_thinking_time:.2f} 秒...")
     time.sleep(human_thinking_time)
 
     checkin_token = calc_checkin_token(ticket, sign_captcha_val)
-    print(f"已根据 ticket+code 计算 checkin_token: {checkin_token}")
+    log(f"已根据 ticket+code 计算 checkin_token: {checkin_token}")
 
     sign_payload = {
         "captcha_code": sign_captcha_val,
@@ -352,7 +407,7 @@ def sign():
         "checkin_token": checkin_token,
     }
 
-    print("正在提交签到请求...")
+    log("正在提交签到请求...")
     try:
         resp = session.post(
             sign_api,
@@ -362,29 +417,31 @@ def sign():
             allow_redirects=False,
         )
         data = resp.json()
-        print("签到响应:", data)
+        log("签到响应:", data)
     except requests.RequestException as e:
-        print("签到请求失败:", e)
+        log("签到请求失败:", e)
     except Exception:
-        print("签到返回非 JSON 数据:", resp.text[:500])
+        log("签到返回非 JSON 数据:", resp.text[:500])
 
 
 def main():
-    print("==== 启动自动签到流程 ====")
+    cleanup_old_logs()
+    log("==== 启动自动签到流程 ====")
     if load_session_cookies() and is_session_valid():
-        print("✅ 复用本地有效的 Session，跳过登录步骤！")
+        log("✅ 复用本地有效的 Session，跳过登录步骤！")
     else:
-        print("⚠️ 本地 Session 不存在或已失效，执行登录...")
+        log("⚠️ 本地 Session 不存在或已失效，执行登录...")
         login()
 
     delay = random.uniform(3.0, 5.0)
-    print(f"等待 {delay:.1f} 秒后发起签到...")
+    log(f"等待 {delay:.1f} 秒后发起签到...")
     time.sleep(delay)
     sign()
 
-    print("\n==== 运行结束 ====")
+    log("\n==== 运行结束 ====")
     # 增加等待输入，防止直接闪退导致用户看不到日志
-    input("按回车键退出窗口...")
+    print("窗口将在5秒后关闭...")
+    time.sleep(5)
 
 
 if __name__ == "__main__":
