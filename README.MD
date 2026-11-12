@@ -115,7 +115,7 @@ dounaicheck/
 ```powershell
 python -m PyInstaller -F --collect-all ddddocr main.py
 ```
-> 构建完成后，打包产物将输出在 `dist/` 文件夹中。请注意单文件较大（约 150MB），若需分发请上传至 GitHub Releases，切勿直接 push 进 Git 仓库。
+> 构建完成后，打包产物将输出在 `dist/` 文件夹中。
 
 ---
 
