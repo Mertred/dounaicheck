@@ -108,7 +108,10 @@ dounaicheck/
 ### 📦 打包构建
 
 若需自行打包为免环境单文件程序，请确保已安装 `pyinstaller`，然后执行带模型资源收集的打包命令：
-
+#虚拟环境进入
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
 ```powershell
 python -m PyInstaller -F --collect-all ddddocr main.py
 ```
