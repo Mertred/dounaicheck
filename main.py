@@ -35,14 +35,16 @@ SIGN_API = "/user/checkin"
 
 TIMEOUT = (10, 30)
 COOKIE_EXPIRE_SECONDS = 24 * 3600
+NO_WAIT = "--no-wait" in sys.argv
 
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-LOG_FILE = os.path.join(BASE_DIR, "checkin.log")
-# 获取程序运行所在目录（兼容脚本与打包后的 exe）
+def wait_before_exit(seconds: int = 5):
+    """退出前等待，方便双击运行的用户查看日志；支持 --no-wait 参数跳过等待"""
+    if not NO_WAIT:
+        print(f"\n窗口将在 {seconds} 秒后关闭...")
+        time.sleep(seconds)
+
+
 def cleanup_old_logs():
     """启动时清理超过 7 天的历史日志，保持单文件体积精简"""
     if not os.path.exists(LOG_FILE):
@@ -91,8 +93,7 @@ def load_config() -> tuple[str, str]:
             json.dump(default_cfg, f, indent=4, ensure_ascii=False)
         log(f"⚠️ 未检测到配置文件，已为您生成默认模板：{CONFIG_FILE}")
         log("请打开 config.json 填入正确的邮箱和密码后重新运行程序！")
-        print("\n按回车键退出...")
-        time.sleep(5)
+        wait_before_exit(5)
         sys.exit(0)
 
     try:
@@ -103,53 +104,62 @@ def load_config() -> tuple[str, str]:
 
         if not email or not passwd or "your_email" in email:
             log("⚠️ config.json 中的账号或密码未配置正确，请修改后重试！")
-            print("\n按回车键退出...")
-            time.sleep(5)
+            wait_before_exit(5)
             sys.exit(0)
 
         return email, passwd
     except Exception as e:
         log(f"❌ 读取 config.json 失败: {e}")
-        print("\n按回车键退出...")
-        time.sleep(5)
+        wait_before_exit(5)
         sys.exit(1)
 
 
-# 初始化账号密码
-USERNAME, PASSWORD = load_config()
+_ocr_instance = None
 
-ocr = ddddocr.DdddOcr(show_ad=False)
-session = requests.Session()
 
-retry = Retry(
-    total=3,
-    connect=3,
-    read=3,
-    backoff_factor=2,
-    status_forcelist=[500, 502, 503, 504],
-    allowed_methods=["GET", "POST"],
-)
-adapter = HTTPAdapter(max_retries=retry)
-session.mount("https://", adapter)
-session.mount("http://", adapter)
+def get_ocr():
+    """按需延迟加载 OCR 模型，避免配置错误时白白等待模型初始化"""
+    global _ocr_instance
+    if _ocr_instance is None:
+        _ocr_instance = ddddocr.DdddOcr(show_ad=False)
+    return _ocr_instance
 
-session.headers.update(
-    {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "X-Requested-With": "XMLHttpRequest",
-    }
-)
+
+def create_session() -> requests.Session:
+    s = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=2,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+
+    s.headers.update(
+        {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+    )
+    return s
+
+
+session = create_session()
 
 CN_NUM_MAP = {
     "零": "0",
@@ -294,7 +304,7 @@ def get_captcha_code(
                 raise ValueError("未匹配到 Base64 图片数据")
 
             img_bytes = base64.b64decode(match.group(1))
-            text = ocr.classification(img_bytes)
+            text = get_ocr().classification(img_bytes)
             log(f"[{captcha_type}] 验证码第 {attempt} 次 OCR 识别: '{text}'")
 
             result = calculate_expression(text)
@@ -308,8 +318,8 @@ def get_captcha_code(
     raise RuntimeError("连续多次验证码识别失败")
 
 
-def login():
-    log(f"当前登录账号: {USERNAME}")
+def login(username: str, password: str):
+    log(f"当前登录账号: {username}")
     log("访问登录页面建立 Session...")
     session.get(BASE_URL + LOGIN_PAGE, timeout=TIMEOUT)
     time.sleep(random.uniform(1.5, 3.0))
@@ -324,25 +334,27 @@ def login():
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
     }
     payload = {
-        "email": USERNAME,
-        "passwd": PASSWORD,
+        "email": username,
+        "passwd": password,
         "captcha_code": captcha_val,
     }
 
     try:
         resp = session.post(login_url, data=payload, headers=headers, timeout=TIMEOUT)
         data = resp.json()
-    except Exception as e:
+    except requests.RequestException as e:
         log("登录请求失败:", e)
-        print("\n按回车键退出...")
-        time.sleep(5)
+        wait_before_exit(5)
+        sys.exit(1)
+    except ValueError:
+        log("登录返回非 JSON 数据:", resp.text[:500])
+        wait_before_exit(5)
         sys.exit(1)
 
     log("登录响应:", data)
     if data.get("ret") != 1:
         log(f"登录失败: {data.get('msg')}")
-        print("\n按回车键退出...")
-        time.sleep(5)
+        wait_before_exit(5)
         sys.exit(1)
 
     log("登录成功！")
@@ -416,22 +428,27 @@ def sign():
             timeout=TIMEOUT,
             allow_redirects=False,
         )
-        data = resp.json()
-        log("签到响应:", data)
     except requests.RequestException as e:
         log("签到请求失败:", e)
-    except Exception:
+        return
+
+    try:
+        data = resp.json()
+        log("签到响应:", data)
+    except ValueError:
         log("签到返回非 JSON 数据:", resp.text[:500])
 
 
 def main():
     cleanup_old_logs()
+    username, password = load_config()
+
     log("==== 启动自动签到流程 ====")
     if load_session_cookies() and is_session_valid():
         log("✅ 复用本地有效的 Session，跳过登录步骤！")
     else:
         log("⚠️ 本地 Session 不存在或已失效，执行登录...")
-        login()
+        login(username, password)
 
     delay = random.uniform(3.0, 5.0)
     log(f"等待 {delay:.1f} 秒后发起签到...")
@@ -439,9 +456,7 @@ def main():
     sign()
 
     log("\n==== 运行结束 ====")
-    # 增加等待输入，防止直接闪退导致用户看不到日志
-    print("窗口将在5秒后关闭...")
-    time.sleep(5)
+    wait_before_exit(5)
 
 
 if __name__ == "__main__":

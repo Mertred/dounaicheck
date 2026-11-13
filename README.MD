@@ -42,6 +42,8 @@ dounaicheck/
 │
 ├── config.json              # [本地运行生成] 实际用户配置文件（含账号密码，已忽略防泄密）
 ├── session_cookies.pkl      # [运行缓存] 本地登录会话凭据（24小时内免重新登录）
+├── checkin.log              # [运行日志] 自动记录并保留最近 7 天的签到日志
+├── requirements.txt         # Python 依赖包列表
 │
 ├── build/                   # [PyInstaller 构建临时目录，可随时清理]
 └── dist/                    # [PyInstaller 输出目录]
@@ -93,14 +95,18 @@ dounaicheck/
 3. **安装依赖项**：
    ```bash
    python -m pip install --upgrade pip
-   pip install requests ddddocr urllib3 pyinstaller
+   pip install -r requirements.txt
    ```
 
 4. **配置并运行**：
-   * 参考 `config.example.json` 新建 `config.json` 并填入个人凭据。
+   * 参考 `config.json.sample` 新建 `config.json` 并填入个人凭据（或直接运行一次脚本自动生成模板）。
    * 执行脚本：
      ```bash
      python main.py
+     ```
+   * 如需配置到 Windows 任务计划程序定时静默运行，可附加 `--no-wait` 参数跳过结尾的 5 秒等待：
+     ```bash
+     python main.py --no-wait
      ```
 
 ---

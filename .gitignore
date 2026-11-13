@@ -1,6 +1,7 @@
-# 忽略敏感信息和本地配置
+# 忽略敏感信息、本地配置与运行日志
 config.json
 session_cookies.pkl
+checkin.log
 
 # 忽略打包产物与构建缓存
 build/
