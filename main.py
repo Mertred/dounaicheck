@@ -379,7 +379,7 @@ def calc_checkin_token(ticket: str, code: str) -> str:
     return hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
 
 
-def sign():
+def sign(max_retries: int = 3) -> bool:
     user_page = BASE_URL + USER_PANEL
     sign_api = BASE_URL + SIGN_API
 
@@ -389,54 +389,83 @@ def sign():
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
     }
 
-    log("访问用户面板刷新页面凭证...")
-    resp_panel = session.get(user_page, timeout=TIMEOUT)
+    for attempt in range(1, max_retries + 1):
+        if attempt > 1:
+            retry_delay = random.uniform(2.0, 4.0)
+            log(f"🔄 等待 {retry_delay:.1f} 秒后进行第 {attempt}/{max_retries} 次签到尝试...")
+            time.sleep(retry_delay)
 
-    panel_browse_delay = random.uniform(2.5, 4.5)
-    log(f"模拟用户停留在面板页面 {panel_browse_delay:.1f} 秒...")
-    time.sleep(panel_browse_delay)
+        try:
+            log(f"[第 {attempt}/{max_retries} 次] 访问用户面板刷新页面凭证...")
+            resp_panel = session.get(user_page, timeout=TIMEOUT)
+            resp_panel.raise_for_status()
+        except requests.RequestException as e:
+            log(f"⚠️ 第 {attempt}/{max_retries} 次访问用户面板失败: {e}")
+            continue
 
-    ticket = extract_ticket(resp_panel.text)
-    if not ticket:
-        log("❌ 未在用户面板中提取到 checkinTicket")
-        return
-    log(f"成功提取到 checkinTicket: {ticket[:25]}...")
+        panel_browse_delay = random.uniform(2.5, 4.5)
+        log(f"模拟用户停留在面板页面 {panel_browse_delay:.1f} 秒...")
+        time.sleep(panel_browse_delay)
 
-    log("弹出签到框，正在获取验证码 (type=checkin)...")
-    sign_captcha_val = get_captcha_code(captcha_type="checkin", referer=user_page)
+        ticket = extract_ticket(resp_panel.text)
+        if not ticket:
+            log(f"❌ 第 {attempt}/{max_retries} 次未在用户面板中提取到 checkinTicket")
+            continue
+        log(f"成功提取到 checkinTicket: {ticket[:25]}...")
 
-    human_thinking_time = random.uniform(3.5, 6.0)
-    log(f"模拟真人计算与输入延迟: {human_thinking_time:.2f} 秒...")
-    time.sleep(human_thinking_time)
+        try:
+            log("弹出签到框，正在获取验证码 (type=checkin)...")
+            sign_captcha_val = get_captcha_code(captcha_type="checkin", referer=user_page)
+        except Exception as e:
+            log(f"⚠️ 第 {attempt}/{max_retries} 次获取签到验证码失败: {e}")
+            continue
 
-    checkin_token = calc_checkin_token(ticket, sign_captcha_val)
-    log(f"已根据 ticket+code 计算 checkin_token: {checkin_token}")
+        human_thinking_time = random.uniform(3.5, 6.0)
+        log(f"模拟真人计算与输入延迟: {human_thinking_time:.2f} 秒...")
+        time.sleep(human_thinking_time)
 
-    sign_payload = {
-        "captcha_code": sign_captcha_val,
-        "checkin_secret": "",
-        "checkin_ticket": ticket,
-        "checkin_token": checkin_token,
-    }
+        checkin_token = calc_checkin_token(ticket, sign_captcha_val)
+        log(f"已根据 ticket+code 计算 checkin_token: {checkin_token}")
 
-    log("正在提交签到请求...")
-    try:
-        resp = session.post(
-            sign_api,
-            headers=headers,
-            data=sign_payload,
-            timeout=TIMEOUT,
-            allow_redirects=False,
-        )
-    except requests.RequestException as e:
-        log("签到请求失败:", e)
-        return
+        sign_payload = {
+            "captcha_code": sign_captcha_val,
+            "checkin_secret": "",
+            "checkin_ticket": ticket,
+            "checkin_token": checkin_token,
+        }
 
-    try:
-        data = resp.json()
-        log("签到响应:", data)
-    except ValueError:
-        log("签到返回非 JSON 数据:", resp.text[:500])
+        log("正在提交签到请求...")
+        try:
+            resp = session.post(
+                sign_api,
+                headers=headers,
+                data=sign_payload,
+                timeout=TIMEOUT,
+                allow_redirects=False,
+            )
+        except requests.RequestException as e:
+            log(f"⚠️ 第 {attempt}/{max_retries} 次签到请求失败: {e}")
+            continue
+
+        try:
+            data = resp.json()
+            log("签到响应:", data)
+        except ValueError:
+            log(f"⚠️ 第 {attempt}/{max_retries} 次签到返回非 JSON 数据:", resp.text[:500])
+            continue
+
+        msg = str(data.get("msg", ""))
+        if data.get("ret") == 1:
+            log("✅ 签到成功！")
+            return True
+        if "已签到" in msg or "已经签到" in msg:
+            log(f"ℹ️ {msg}（无需重复重试）")
+            return True
+
+        log(f"⚠️ 第 {attempt}/{max_retries} 次签到失败: {msg}")
+
+    log(f"❌ 连续 {max_retries} 次签到失败，结束任务。")
+    return False
 
 
 def main():
